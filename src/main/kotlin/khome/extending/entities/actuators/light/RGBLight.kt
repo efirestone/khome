@@ -107,15 +107,15 @@ fun RGBLight.setBrightness(level: Brightness) {
 }
 
 fun RGBLight.setRGB(red: Int, green: Int, blue: Int) {
-    desiredState = RGBLightState(SwitchableValue.ON, rgbColor = RGBColor.from(red, green, blue))
+    desiredState = RGBLightState(SwitchableValue.ON, rgbColor = RGBColor(red, green, blue))
 }
 
 fun RGBLight.setHS(hue: Double, saturation: Double) {
-    desiredState = RGBLightState(SwitchableValue.ON, hsColor = HSColor.from(hue, saturation))
+    desiredState = RGBLightState(SwitchableValue.ON, hsColor = HSColor(hue, saturation))
 }
 
 fun RGBLight.setXY(x: Double, y: Double) {
-    desiredState = RGBLightState(SwitchableValue.ON, xyColor = XYColor.from(x, y))
+    desiredState = RGBLightState(SwitchableValue.ON, xyColor = XYColor(x, y))
 }
 
 fun RGBLight.setColor(name: ColorName) =

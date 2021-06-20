@@ -1,14 +1,11 @@
 package khome
 
-import com.google.gson.FieldNamingPolicy
-import com.google.gson.GsonBuilder
-import com.google.gson.TypeAdapter
 import io.fluidsonic.time.LocalTime
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.features.defaultRequest
-import io.ktor.client.features.json.GsonSerializer
 import io.ktor.client.features.json.JsonFeature
+import io.ktor.client.features.json.serializer.*
 import io.ktor.client.features.websocket.WebSockets
 import io.ktor.client.request.header
 import io.ktor.client.request.host
@@ -36,73 +33,24 @@ import khome.core.clients.RestApiClient
 import khome.core.clients.WebSocketClient
 import khome.core.koin.KhomeComponent
 import khome.core.koin.KhomeKoinContext
-import khome.core.mapping.GsonTypeAdapterBridge
-import khome.core.mapping.KhomeTypeAdapter
 import khome.core.mapping.ObjectMapper
 import khome.core.mapping.ObjectMapperInterface
-import khome.core.mapping.adapter.default.InstantTypeAdapter
-import khome.core.mapping.adapter.default.LocalDateAdapter
-import khome.core.mapping.adapter.default.LocalDateTimeAdapter
-import khome.core.mapping.adapter.default.LocalTimeAdapter
-import khome.core.mapping.adapter.default.RegexTypeAdapter
 import khome.entities.ActuatorStateUpdater
 import khome.entities.EntityRegistrationValidation
 import khome.entities.SensorStateUpdater
 import khome.errorHandling.ErrorResponseData
-import khome.values.AlbumName
-import khome.values.AppId
-import khome.values.AppName
-import khome.values.Artist
-import khome.values.Azimuth
-import khome.values.Brightness
-import khome.values.ColorName
-import khome.values.ColorTemperature
-import khome.values.Device
-import khome.values.Domain
-import khome.values.Elevation
-import khome.values.EntityId
-import khome.values.EventType
-import khome.values.FriendlyName
-import khome.values.HSColor
-import khome.values.HvacMode
-import khome.values.Icon
-import khome.values.Initial
-import khome.values.Max
-import khome.values.MediaContentId
-import khome.values.MediaDuration
-import khome.values.MediaPosition
-import khome.values.MediaSource
-import khome.values.MediaTitle
-import khome.values.Min
-import khome.values.Mode
-import khome.values.Mute
-import khome.values.ObjectId
-import khome.values.Option
-import khome.values.PersonId
-import khome.values.Position
-import khome.values.PowerConsumption
-import khome.values.PresetMode
-import khome.values.RGBColor
-import khome.values.Rising
-import khome.values.Service
-import khome.values.Step
-import khome.values.Temperature
-import khome.values.UnitOfMeasurement
-import khome.values.UserId
-import khome.values.VolumeLevel
-import khome.values.XYColor
-import khome.values.Zone
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.ObsoleteCoroutinesApi
-import kotlinx.datetime.Instant
-import kotlinx.datetime.LocalDate
-import kotlinx.datetime.LocalDateTime
 import org.koin.core.component.inject
 import org.koin.core.module.Module
 import org.koin.dsl.module
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.modules.SerializersModule
 import kotlin.reflect.KClass
 
-internal typealias TypeAdapters = MutableMap<KClass<*>, TypeAdapter<*>>
+internal typealias TypeSerializers = MutableMap<KClass<*>, KSerializer<*>>
 
 private const val NAME = "NAME"
 private const val HOST = "HOST"
@@ -143,15 +91,14 @@ interface Khome {
      */
     fun configure(builder: Configuration.() -> Unit): Configuration
 
-    fun <T : Any, P : Any> registerTypeAdapter(
-        adapter: KhomeTypeAdapter<T>,
-        valueObjectType: KClass<T>,
-        primitiveType: KClass<P>
+    fun <T : Any> registerSerializer(
+        serializer: KSerializer<T>,
+        valueObjectType: KClass<T>
     )
 }
 
-inline fun <reified T : Any, reified P : Any> Khome.registerTypeAdapter(adapter: KhomeTypeAdapter<T>) =
-    registerTypeAdapter(adapter, T::class, P::class)
+inline fun <reified T : Any> Khome.registerSerializer(adapter: KSerializer<T>) =
+    registerSerializer(adapter, T::class)
 
 @OptIn(ExperimentalStdlibApi::class, KtorExperimentalAPI::class, ObsoleteCoroutinesApi::class)
 private class KhomeImpl : Khome, KhomeComponent {
@@ -173,50 +120,47 @@ private class KhomeImpl : Khome, KhomeComponent {
     }
 
     private val config: Configuration by inject()
-    private val typeAdapters: TypeAdapters = mutableMapOf()
+    private val typeSerializers: TypeSerializers = mutableMapOf()
 
     override fun configure(builder: Configuration.() -> Unit) =
         config.apply(builder)
 
-    override fun <T : Any, P : Any> registerTypeAdapter(
-        adapter: KhomeTypeAdapter<T>,
-        valueObjectType: KClass<T>,
-        primitiveType: KClass<P>
+    override fun <T : Any> registerSerializer(
+        serializer: KSerializer<T>,
+        valueObjectType: KClass<T>
     ) {
-        typeAdapters[valueObjectType] = GsonTypeAdapterBridge(adapter, primitiveType)
+        typeSerializers[valueObjectType] = serializer
     }
 
     fun createApplication(): KhomeApplicationImpl {
-        registerDefaultTypeAdapter()
         val mapperModule = module {
             single {
-                GsonBuilder().apply {
-                    setPrettyPrinting()
-                    setFieldNamingPolicy(FieldNamingPolicy.LOWER_CASE_WITH_UNDERSCORES)
-                    typeAdapters.forEach { adapter ->
-                        registerTypeAdapter(adapter.key.java, adapter.value.nullSafe())
+                Json {
+                    prettyPrint = true
+                    ignoreUnknownKeys = true
+                    serializersModule = SerializersModule {
+                        typeSerializers.forEach { entry ->
+                            @Suppress("UNCHECKED_CAST")
+                            this.contextual(entry.key as KClass<Any>, entry.value as KSerializer<Any>)
+                        }
+                        this.contextual(JsonObject::class, JsonObject.serializer())
                     }
-                }.create()!!
+                }
             }
             single<ObjectMapperInterface> { ObjectMapper(get()) }
         }
 
         val internalModule: Module =
             module {
-
                 single<ServiceStoreInterface> { ServiceStore() }
 
                 single {
                     val client = HttpClient(CIO) {
                         install(JsonFeature) {
-                            serializer = GsonSerializer {
-                                setPrettyPrinting()
-                                setFieldNamingPolicy(FieldNamingPolicy.LOWER_CASE_WITH_UNDERSCORES)
-                                typeAdapters.forEach { adapter ->
-                                    registerTypeAdapter(adapter.key.java, adapter.value.nullSafe())
-                                }
-                                create()!!
-                            }
+                            serializer = KotlinxSerializer(Json {
+                                isLenient = true
+                                ignoreUnknownKeys = true
+                            })
                         }
 
                         val config = get<Configuration>()
@@ -283,55 +227,4 @@ private class KhomeImpl : Khome, KhomeComponent {
         KhomeKoinContext.addModule(mapperModule, internalModule)
         return KhomeApplicationImpl()
     }
-}
-
-internal fun Khome.registerDefaultTypeAdapter() {
-    registerTypeAdapter<Instant, String>(InstantTypeAdapter())
-    registerTypeAdapter<LocalDateTime, String>(LocalDateTimeAdapter())
-    registerTypeAdapter<LocalDate, String>(LocalDateAdapter())
-    registerTypeAdapter<LocalTime, String>(LocalTimeAdapter())
-    registerTypeAdapter<Regex, String>(RegexTypeAdapter())
-    registerTypeAdapter<EntityId, String>(EntityId)
-    registerTypeAdapter<UserId, String>(UserId)
-    registerTypeAdapter<Temperature, Double>(Temperature)
-    registerTypeAdapter<Domain, String>(Domain)
-    registerTypeAdapter<ObjectId, String>(ObjectId)
-    registerTypeAdapter<Service, String>(Service)
-    registerTypeAdapter<Device, String>(Device)
-    registerTypeAdapter<Brightness, Int>(Brightness)
-    registerTypeAdapter<RGBColor, Array<Int>>(RGBColor)
-    registerTypeAdapter<HSColor, Array<Double>>(HSColor)
-    registerTypeAdapter<XYColor, Array<Double>>(XYColor)
-    registerTypeAdapter<ColorTemperature, Int>(ColorTemperature)
-    registerTypeAdapter<ColorName, String>(ColorName)
-    registerTypeAdapter<PowerConsumption, Double>(PowerConsumption)
-    registerTypeAdapter<Icon, String>(Icon)
-    registerTypeAdapter<PresetMode, String>(PresetMode)
-    registerTypeAdapter<HvacMode, String>(HvacMode)
-    registerTypeAdapter<FriendlyName, String>(FriendlyName)
-    registerTypeAdapter<Option, String>(Option)
-    registerTypeAdapter<Mode, String>(Mode)
-    registerTypeAdapter<Min, Double>(Min)
-    registerTypeAdapter<Max, Double>(Max)
-    registerTypeAdapter<Step, Double>(Step)
-    registerTypeAdapter<Initial, Double>(Initial)
-    registerTypeAdapter<UnitOfMeasurement, String>(UnitOfMeasurement)
-    registerTypeAdapter<PersonId, String>(PersonId)
-    registerTypeAdapter<Azimuth, Double>(Azimuth)
-    registerTypeAdapter<Elevation, Double>(Elevation)
-    registerTypeAdapter<EventType, String>(EventType)
-    registerTypeAdapter<MediaContentId, String>(MediaContentId)
-    registerTypeAdapter<MediaTitle, String>(MediaTitle)
-    registerTypeAdapter<Artist, String>(Artist)
-    registerTypeAdapter<AlbumName, String>(AlbumName)
-    registerTypeAdapter<MediaDuration, Double>(MediaDuration)
-    registerTypeAdapter<AppId, String>(AppId)
-    registerTypeAdapter<AppName, String>(AppName)
-    registerTypeAdapter<VolumeLevel, Double>(VolumeLevel)
-    registerTypeAdapter<Mute, Boolean>(Mute)
-    registerTypeAdapter<MediaPosition, Double>(MediaPosition)
-    registerTypeAdapter<MediaSource, String>(MediaSource)
-    registerTypeAdapter<Rising, Boolean>(Rising)
-    registerTypeAdapter<Zone, String>(Zone)
-    registerTypeAdapter<Position, Int>(Position)
 }

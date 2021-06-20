@@ -1,6 +1,5 @@
 package khome.entities.devices
 
-import com.google.gson.JsonObject
 import io.ktor.util.KtorExperimentalAPI
 import khome.KhomeApplicationImpl
 import khome.communicating.CommandDataWithEntityId
@@ -19,6 +18,7 @@ import khome.observability.StateAndAttributes
 import khome.observability.Switchable
 import khome.values.Service
 import kotlinx.coroutines.ObsoleteCoroutinesApi
+import kotlinx.serialization.json.JsonObject
 import kotlin.reflect.KClass
 
 @KtorExperimentalAPI
@@ -57,13 +57,13 @@ internal class ActuatorImpl<S : State<*>, A : Attributes>(
 
     fun trySetActualStateFromAny(newState: JsonObject) {
         @Suppress("UNCHECKED_CAST")
-        actualState = mapper.fromJson(newState, stateType.java) as S
+        actualState = mapper.fromJson(newState, stateType) as S
         checkNotNull(actualState.value) { "State value shall not be null. Please check your State definition  " }
     }
 
     fun trySetAttributesFromAny(newAttributes: JsonObject) {
         @Suppress("UNCHECKED_CAST")
-        attributes = mapper.fromJson(newAttributes, attributesType.java) as A
+        attributes = mapper.fromJson(newAttributes, attributesType) as A
     }
 
     @KtorExperimentalAPI

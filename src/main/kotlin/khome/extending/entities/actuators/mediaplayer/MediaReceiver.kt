@@ -1,6 +1,5 @@
 package khome.extending.entities.actuators.mediaplayer
 
-import com.google.gson.annotations.SerializedName
 import khome.KhomeApplication
 import khome.communicating.DefaultResolvedServiceCommand
 import khome.communicating.DesiredServiceData
@@ -34,6 +33,8 @@ import khome.values.UserId
 import khome.values.VolumeLevel
 import khome.values.service
 import kotlinx.datetime.Instant
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 
 typealias MediaReceiver = MediaPlayer<MediaReceiverState, MediaReceiverAttributes>
 
@@ -138,23 +139,24 @@ data class MediaReceiverState(
     val mediaPosition: MediaPosition? = null
 ) : State<MediaReceiverStateValue>
 
+@Serializable
 enum class MediaReceiverStateValue {
-    @SerializedName("unknown")
+    @SerialName("unknown")
     UNKNOWN,
 
-    @SerializedName("unavailable")
+    @SerialName("unavailable")
     UNAVAILABLE,
 
-    @SerializedName("off")
+    @SerialName("off")
     OFF,
 
-    @SerializedName("idle")
+    @SerialName("idle")
     IDLE,
 
-    @SerializedName("playing")
+    @SerialName("playing")
     PLAYING,
 
-    @SerializedName("paused")
+    @SerialName("paused")
     PAUSED
 }
 
