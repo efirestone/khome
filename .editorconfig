@@ -1,0 +1,9 @@
+# http://editorconfig.org
+root = true
+
+[*]
+indent_style = tab
+indent_size = 4
+
+[*.{kt,kts}]
+no_wildcard_imports = off
